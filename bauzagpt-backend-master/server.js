@@ -1,58 +1,97 @@
+// =============================
+// BauzaGPT Backend - v1.0
+// =============================
+
 import express from "express";
-import cors from "cors";
+import multer from "multer";
 import fs from "fs";
 import path from "path";
-import multer from "multer";
-import { fileURLToPath } from "url";
-import crypto from "crypto";
 import dotenv from "dotenv";
 
 dotenv.config();
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
-app.use(cors());
 app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
+// Configuración básica
 const PORT = process.env.PORT || 8080;
-const OUTPUTS = path.join(__dirname, "storage", "outputs");
-fs.mkdirSync(OUTPUTS, { recursive: true });
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
+const OUTPUTS = path.join(process.cwd(), "storage");
 
-// Simulación de base en memoria
-const ORDERS = {};
+// Crea carpeta "storage" si no existe
+if (!fs.existsSync(OUTPUTS)) fs.mkdirSync(OUTPUTS);
 
+// Configura multer (para archivos subidos)
+const upload = multer({ dest: path.join(OUTPUTS, "proofs") });
+
+// Base de datos temporal (en memoria)
+const orders = new Map();
+
+// =============================
+// ENDPOINTS
+// =============================
+
+// 1️⃣ Crear orden
 app.post("/api/orders/init", (req, res) => {
   const { query, plan } = req.body;
+  if (!query || !plan) return res.status(400).json({ error: "Faltan datos" });
+
   const id = crypto.randomUUID();
-  ORDERS[id] = { query, plan, status: "pending" };
+  orders.set(id, { query, plan, status: "pending" });
+
   res.json({ order_id: id, status: "pending" });
 });
 
-const upload = multer({ dest: path.join(__dirname, "storage", "proofs") });
+// 2️⃣ Subir comprobante
 app.post("/api/orders/proof", upload.single("file"), (req, res) => {
   const { order_id } = req.body;
-  if (!ORDERS[order_id]) return res.json({ error: "orden inválida" });
-  ORDERS[order_id].proof = req.file.filename;
+  if (!orders.has(order_id))
+    return res.status(400).json({ error: "orden inválida" });
+
+  if (!req.file)
+    return res.status(400).json({ error: "no se recibió archivo" });
+
+  orders.get(order_id).proof = req.file.filename;
   res.json({ ok: true, message: "comprobante recibido", order_id });
 });
 
+// 3️⃣ Confirmar orden (simula validación y genera resultado)
 app.post("/api/orders/confirm", (req, res) => {
   const { order_id } = req.body;
-  const order = ORDERS[order_id];
-  if (!order) return res.json({ error: "orden inválida" });
+  const order = orders.get(order_id);
+  if (!order) return res.status(400).json({ error: "orden inválida" });
 
-  const token = crypto.randomUUID();
-  const outPath = path.join(OUTPUTS, `${token}.txt`);
-  fs.writeFileSync(outPath, `Resultado para: ${order.query}\nPlan: ${order.plan}`);
-  const BASE = process.env.BASE_URL || `http://localhost:${PORT}`;
-  res.json({ ok: true, order_id, download_url: `${BASE}/api/download/${token}` });
+  const resultFile = `${order_id}.txt`;
+  const outPath = path.join(OUTPUTS, resultFile);
+  fs.writeFileSync(
+    outPath,
+    `🔍 Resultado de búsqueda BauzaGPT\n\nConsulta: ${order.query}\nPlan: ${order.plan}\nEstado: COMPLETADO`
+  );
+
+  order.status = "completed";
+  order.result = resultFile;
+  res.json({
+    ok: true,
+    message: "orden completada",
+    download_url: `${BASE_URL}/api/download/${order_id}`,
+  });
 });
 
-app.get("/api/download/:token", (req, res) => {
-  const file = path.join(OUTPUTS, `${req.params.token}.txt`);
-  if (!fs.existsSync(file)) return res.status(404).send("Archivo no encontrado");
-  res.download(file, "resultado.txt");
+// 4️⃣ Descargar resultado
+app.get("/api/download/:id", (req, res) => {
+  const { id } = req.params;
+  const order = orders.get(id);
+  if (!order || !order.result)
+    return res.status(404).json({ error: "archivo no encontrado" });
+
+  const filePath = path.join(OUTPUTS, order.result);
+  res.download(filePath);
 });
 
-app.listen(PORT, () => console.log(`Backend on http://localhost:${PORT}`));
+// =============================
+// Arranque del servidor
+// =============================
+app.listen(PORT, () =>
+  console.log(`✅ Backend de BauzaGPT listo en ${BASE_URL}`)
+);
