@@ -24,9 +24,4 @@ outputs/
 # Configuración de editor
 .vscode/
 .idea/
-*.zip
-*.rar
-*.7z
-*.tar.gz
-
 
