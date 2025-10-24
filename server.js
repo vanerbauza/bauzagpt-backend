@@ -78,3 +78,6 @@ async function processOsintAndDeliver(target, toEmail, sessionId) {
   try { fs.unlinkSync(outPath); } catch {}
   console.log("📦 Informe entregado a", toEmail, "→", link);
 }
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log('API lista en puerto', PORT));
+
